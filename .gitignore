@@ -1,1 +1,7 @@
-key_creator/secrets.py
+reader/src/secrets.h
+key_creator/camp_secrets.py
+key_creator/hf-*.json
+key_creator/*.eml
+key_creator/*.bin
+.vscode
+**/__pycache__

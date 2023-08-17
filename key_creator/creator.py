@@ -3,12 +3,11 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
-from hashlib import sha256
-from typing import List, Tuple
 import json
+from typing import Tuple
 
-from secrets import CAMP_SECRET_FLAG, KEY_DIVERSIFICATION_SECRET
+from camp_secrets import CAMP_SECRET_FLAG
+from keys import diversify_keys, key_file_binary
 
 # Enroll a bunch of blank Mifare Classic 1K keys with diversified keys and content
 # In a loop:
@@ -27,6 +26,7 @@ def pm3_autopwn() -> Tuple[str, str, str]:
         input=bytes("hf mf autopwn", encoding="utf-8"),
         shell=True,
         stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
     )
     output.check_returncode()
     output_lines = output.stdout.decode().split("\n")
@@ -51,28 +51,6 @@ def pm3_autopwn() -> Tuple[str, str, str]:
     return (json_doc["Card"]["UID"], json_output_file, key_file)
 
 
-def mifare_key_hash(b: bytes) -> bytes:
-    # Diffuse some input values with a hashing function
-    # SHA256, slicing off the first 6 bytes of the output digest (to match the
-    #   MIFARE Classic key length)
-    sum = sha256()
-    sum.update(b)
-    return sum.digest()[0:6]
-
-
-def diversify_keys(uid: bytes) -> List[Tuple[bytes, bytes]]:
-    sector_keys: List[Tuple] = []
-    for sector in range(0, 16):
-        sector_byte = bytes(sector)
-        key_a = bytes("a", encoding="utf-8")
-        key_b = bytes("b", encoding="utf-8")
-        sector_keys.append(
-            (
-                mifare_key_hash(uid + sector_byte + key_a),
-                mifare_key_hash(uid + sector_byte + key_b),
-            )
-        )
-    return sector_keys
 
 
 def pm3_restore(uid, dump_file, key_file) -> None:
@@ -84,6 +62,7 @@ def pm3_restore(uid, dump_file, key_file) -> None:
         ),
         shell=True,
         stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
     )
     # print(output.stdout.decode())
     return output
@@ -97,10 +76,19 @@ if __name__ == "__main__":
     temporary_directory = "/tmp"
     print(f"Temp Directory: {temporary_directory}")
     os.chdir(temporary_directory)
+    hard_mode = False
 
     while True:
-        print("# Place blank tag and press Return/Enter")
-        sys.stdin.readline()
+        print("# Place blank tag and press \"e\"+Enter for easy mode, or \"h\"+Enter for hard mode")
+        input_line = sys.stdin.readline().strip().lower()
+        if input_line == 'e':
+            hard_mode = False
+            print("# Easy Mode")
+        elif input_line == 'h':
+            hard_mode = True
+            print("# Hard Mode")
+        else:
+            continue
         uid, dump_file, key_file = pm3_autopwn()
         sector_keys = diversify_keys(bytes.fromhex(uid))
         with open(dump_file, "rb") as file:
@@ -108,9 +96,11 @@ if __name__ == "__main__":
         print(f"# Loaded JSON Dump file for UID {uid}")
 
         print(f"# Setting diversified keys in the JSON doc...")
-        # This skips Sector 0, as we still want to have a default-keyed sector
-        # for nested attacks
-        for sector in range(1, 16):
+        if hard_mode:
+            key_range = (1, 16)
+        else:
+            key_range = (1, 2)
+        for sector in range(*key_range):
             key_a = sector_keys[sector][0].hex().upper()
             key_b = sector_keys[sector][1].hex().upper()
             json_doc["SectorKeys"][str(sector)]["KeyA"] = key_a
@@ -124,16 +114,37 @@ if __name__ == "__main__":
                 str(sector_trailer_block_number)
             ] = new_sector_trailer_block
 
-        print("Inserting the secret flag into Sector 1, Block 4")
-        json_doc["blocks"]["4"] = CAMP_SECRET_FLAG
+        if hard_mode:
+            print("## Setting the \"hard mode\" flag into Sector 1, Block 4")
+            json_doc["blocks"]["4"] = '11000000000000000000000000000000'
+        else:
+            print("## Setting the \"easy mode\" flag into Sector 1, Block 4")
+            json_doc["blocks"]["4"] = 'FF000000000000000000000000000000'
 
-        print("# Writing new JSON Dump file")
+        print("## Inserting the secret flag into Sector 1, Block 5")
+        json_doc["blocks"]["5"] = CAMP_SECRET_FLAG
+
+        if hard_mode:
+            print("## Setting \"hard mode \" flags into Blocks 6 - 63")
+            for block in range(6, 64):
+                if block % 4 == 3:
+                    # Skip Sector trailer blocks
+                    continue
+                block_byte = int.to_bytes(block, 1, byteorder='big')
+                block_flag = block_byte * 16
+                json_doc["blocks"][str(block)] = block_flag.hex().upper()
+
         new_dump_file = dump_file.replace(".json", ".new.json")
+        print(f"# Writing new JSON Dump file: {new_dump_file}")
         with open(new_dump_file, "x") as file:
             json.dump(json_doc, file, indent=2)
 
+        new_key_file = key_file.replace("-key", "-key.new")
+        print(f"# Writing new key file {new_key_file}")
+        with open(new_key_file, "wb") as file:
+            file.write(key_file_binary(sector_keys, key_range))
+
         print("# Writing new card contents with new JSON Dump File...")
-        # pm3_restore(uid, new_dump_file, key_file)
+        pm3_restore(uid, new_dump_file, key_file)
 
         print(f"# Done personalizing UID {uid}")
-        break
