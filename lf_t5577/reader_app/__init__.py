@@ -2,7 +2,7 @@
 import re
 import json
 from argparse import ArgumentParser
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 import pm3
 from textual.app import App, ComposeResult
@@ -37,7 +37,7 @@ class Database:
 
     def save(self):
         with open(self.filename, "w") as f:
-            json.dump([dict(card) for card in self.cards], f, indent=2)
+            json.dump([asdict(card) for card in self.cards], f, indent=2)
 
     def add_card(self, card: EnrolledCard):
         self.cards.append(card)
@@ -45,33 +45,36 @@ class Database:
 
 
 class EnrollmentScreen(Screen):
-    status = reactive("Ready")
-
     def compose(self) -> ComposeResult:
-        yield ScrollableContainer(
-            DataTable(id="enrolled_cards"),
-            id="enrolled_cards_container",
+        yield Container(
+            ScrollableContainer(
+                DataTable(id="enrolled_cards"),
+                id="enrolled_cards_container",
+            ),
+            Horizontal(Static("Name: ", classes="label"), Input(id="name")),
+            Horizontal(
+                Static("Facility Code: ", classes="label"),
+                Input(id="facility_code"),
+                Button("Random", id="random_facility_code"),
+            ),
+            Horizontal(
+                Static("Card Number: ", classes="label"),
+                Input(id="card_number"),
+                Button("Random", id="random_card_number"),
+            ),
+            Horizontal(
+                Button("Enroll Card", id="enroll_card", variant="primary"),
+                Button("Main Menu", id="main_menu", variant="primary"),
+            ),
+            Static("", id="status", classes="success"),
         )
-        yield Horizontal(Static("Name: ", classes="label"), Input(id="name"))
-        yield Horizontal(
-            Static("Facility Code: ", classes="label"),
-            Input(id="facility_code"),
-            Button("Random", id="random_facility_code"),
-        )
-        yield Horizontal(
-            Static("Card Number: ", classes="label"),
-            Input(id="card_number"),
-            Button("Random", id="random_card_number"),
-        )
-        yield Button("Enroll Card", id="enroll_card", variant="primary")
-        yield Static(self.status, id="status")
 
     def on_mount(self):
         self.update_enrolled_cards()
 
     def update_enrolled_cards(self):
         table = self.query_one("#enrolled_cards", DataTable)
-        table.clear()
+        table.clear(columns=True)
         table.add_columns("Name", "Facility Code", "Card Number")
         for card in self.app.database.cards:
             table.add_row(card.name, str(card.facility_code), str(card.card_number))
@@ -86,10 +89,15 @@ class EnrollmentScreen(Screen):
         if success:
             card = EnrolledCard(name, facility_code, card_number)
             self.app.database.add_card(card)
-            self.status = "Card written successfully!"
+            self.update_status("Card written successfully!")
             self.update_enrolled_cards()
         else:
-            self.status = "Failed to write card. Please try again."
+            self.update_status("Failed to write card. Please try again.", "error")
+
+        # Clear input fields
+        self.query_one("#name", Input).value = ""
+        self.query_one("#facility_code", Input).value = ""
+        self.query_one("#card_number", Input).value = ""
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "enroll_card":
@@ -98,9 +106,15 @@ class EnrollmentScreen(Screen):
             self.query_one("#facility_code", Input).value = str(random.randint(1, 255))
         elif event.button.id == "random_card_number":
             self.query_one("#card_number", Input).value = str(random.randint(1, 65535))
+        elif event.button.id == "main_menu":
+            self.app.pop_screen()
 
-    def update_status(self, status: str):
-        self.query_one("#status", Static).update(status)
+    def update_status(self, status: str, status_type: str = "success"):
+        widget = self.query_one("#status", Static)
+        widget.update(status)
+        widget.remove_class("success")
+        widget.remove_class("error")
+        widget.add_class(status_type)
 
 
 class ReaderScreen(Screen):
@@ -117,6 +131,15 @@ class MenuApp(App):
         width: 75%;
         margin: 1 0;
     }
+    Container {
+        padding: 1 2;
+    }
+    Horizontal {
+        margin: 1 0;
+    }
+    Input {
+        width: 75%;
+    }
     .label {
         width: 30%;
         padding: 1 0;
@@ -125,8 +148,20 @@ class MenuApp(App):
         width: 100%;
         height: 3;
         content-align: center middle;
+    }
+    #status.success {
         background: $success;
         color: $text;
+    }
+    #status.error {
+        background: $error;
+        color: $text;
+    }
+    #enroll_card  {
+        width: 50%;
+    }
+    #main_menu {
+        width: 50%;
     }
     """
     BINDINGS = [("q", "quit", "Quit")]
@@ -173,12 +208,14 @@ def main():
 
 def write_hid26_to_t5577(facility_code: int, card_number: int) -> bool:
     result = proxmark3.console("lf t55 detect")
+    output = proxmark3.grabbed_output
     if result != 0:
         return False
 
     result = proxmark3.console(
         f"lf hid clone -w H10301 --fc {facility_code} --cn {card_number}"
     )
+    output = proxmark3.grabbed_output
     if result != 0:
         return False
 
@@ -195,7 +232,7 @@ def write_hid26_to_t5577(facility_code: int, card_number: int) -> bool:
     successful_regex = (
         rf"FC:\s+{facility_code}\s+CN:\s+{card_number}\s+parity\s+\( ok \)"
     )
-    if not re.match(successful_regex, output):
+    if not re.search(successful_regex, output):
         return False
 
     return True
