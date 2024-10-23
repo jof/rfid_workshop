@@ -55,12 +55,12 @@ class EnrollmentScreen(Screen):
             Horizontal(
                 Static("Facility Code: ", classes="label"),
                 Input(id="facility_code"),
-                Button("Random", id="random_facility_code"),
+                Button("Random", classes="random", id="random_facility_code"),
             ),
             Horizontal(
                 Static("Card Number: ", classes="label"),
                 Input(id="card_number"),
-                Button("Random", id="random_card_number"),
+                Button("Random", classes="random", id="random_card_number"),
             ),
             Horizontal(
                 Button("Enroll Card", id="enroll_card", variant="primary"),
@@ -96,7 +96,7 @@ class EnrollmentScreen(Screen):
 
         # Clear input fields
         self.query_one("#name", Input).value = ""
-        self.query_one("#facility_code", Input).value = ""
+        # self.query_one("#facility_code", Input).value = ""
         self.query_one("#card_number", Input).value = ""
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -129,20 +129,25 @@ class MenuApp(App):
     }
     Button {
         width: 75%;
-        margin: 1 0;
+        margin: 1 2;
     }
     Container {
         padding: 1 2;
     }
     Horizontal {
-        margin: 1 0;
-    }
-    Input {
-        width: 75%;
+        margin: 1 2;
     }
     .label {
-        width: 30%;
+        width: 25%;
         padding: 1 0;
+    }
+    Input {
+        width: 25%;
+        margin: 1 2;
+    }
+    Button.random {
+        width: 25%;
+        margin: 1 2;
     }
     #status {
         width: 100%;
