@@ -118,8 +118,62 @@ class EnrollmentScreen(Screen):
 
 
 class ReaderScreen(Screen):
-    pass
+    def compose(self) -> ComposeResult:
+        yield Container(
+            ScrollableContainer(
+                DataTable(id="database"),
+                id="database_container"
+            ),
+            Static("", id="status", classes="success"),
+            Button("Main Menu", id="main_menu", variant="primary")
+        )
 
+    def on_mount(self):
+        self.update_database()
+        self.check_read_status()
+
+    def update_database(self):
+        table = self.query_one("#database", DataTable)
+        table.clear(columns=True)
+        table.add_columns("Name", "Facility Code", "Card Number")
+        for card in self.app.database.cards:
+            table.add_row(card.name, str(card.facility_code), str(card.card_number))
+
+    def check_read_status(self):
+        result = proxmark3.console("lf hid read")
+        if result != 0:
+            self.update_status("No card detected", "error")
+            return None
+        output = proxmark3.grabbed_output
+
+        successful_regex = (rf"FC:\s+(\d+)\s+CN:\s+(\d+)\s+parity\s+\( ok \)")
+        match = re.search(successful_regex, output)
+        if match:
+            facility_code = int(match.group(1))
+            card_number = int(match.group(2))
+            matching_card = next((card for card in self.app.database.cards if card.facility_code == facility_code and card.card_number == card_number), None)
+            if matching_card:
+                self.highlight_matching_row(matching_card)
+                self.update_status(f"Access Granted. Welcome, {matching_card.name}")
+            else:
+                self.update_status("Access Denied", "error")
+        else:
+            self.update_status("No Card Found", "secondary")
+
+    def highlight_matching_row(self, matching_card):
+        pass
+
+    def update_status(self, message: str, status_type: str = "success"):
+        widget = self.query_one("#status", Static)
+        widget.update(message)
+        widget.remove_class("success")
+        widget.remove_class("secondary")
+        widget.remove_class("error")
+        widget.add_class(status_type)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "main_menu":
+            self.app.pop_screen()
 
 class MenuApp(App):
     CSS = """
@@ -157,6 +211,9 @@ class MenuApp(App):
     #status.success {
         background: $success;
         color: $text;
+    }
+    #status.secondary {
+        border: dashed $accent;
     }
     #status.error {
         background: $error;
