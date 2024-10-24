@@ -1,17 +1,19 @@
 #!/usr/bin/env python
-import re
 import json
+import random
+import re
 from argparse import ArgumentParser
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
+from typing import List
 
 import pm3
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, ScrollableContainer
-from textual.screen import Screen
-from textual.widgets import Button, Footer, Header, DataTable, Static, Input
+from textual.css.query import NoMatches
 from textual.reactive import reactive
-import random
-from typing import List
+from textual.screen import Screen
+from textual.timer import Timer
+from textual.widgets import Button, DataTable, Footer, Header, Input, Static
 
 
 @dataclass
@@ -119,10 +121,6 @@ class EnrollmentScreen(Screen):
         widget.add_class(status_type)
 
 
-from textual.timer import Timer
-from textual.css.query import NoMatches
-
-
 class ReaderScreen(Screen):
     BINDINGS = [("space", "toggle_reading", "Toggle Reading")]
 
@@ -134,12 +132,14 @@ class ReaderScreen(Screen):
                 Button("Main Menu", id="main_menu", variant="primary"),
                 Button("Start Reading", id="toggle_reading", variant="primary"),
             ),
+            Static("", id="emoji_status", classes="emoji"),
         )
 
     def on_mount(self):
         self.update_database()
         self.reading = False
         self.read_timer = None
+        self.update_emoji_status("🔍")  # Default to magnifying glass
 
     def update_database(self):
         table = self.query_one("#database", DataTable)
@@ -152,6 +152,7 @@ class ReaderScreen(Screen):
         result = proxmark3.console("lf hid read")
         if result != 0:
             self.update_status("No card detected", "error")
+            self.update_emoji_status("❓")
             return None
         output = proxmark3.grabbed_output
 
@@ -172,10 +173,13 @@ class ReaderScreen(Screen):
             if matching_card:
                 self.highlight_matching_row(matching_card)
                 self.update_status(f"Access Granted. Welcome, {matching_card.name}")
+                self.update_emoji_status("✅")  # Green checkbox
             else:
                 self.update_status("Access Denied", "error")
+                self.update_emoji_status("❌")  # Red X
         else:
             self.update_status("No Card Found", "secondary")
+            self.update_emoji_status("❓")  # Red question mark
 
     def highlight_matching_row(self, matching_card):
         pass
@@ -187,6 +191,13 @@ class ReaderScreen(Screen):
         widget.remove_class("secondary")
         widget.remove_class("error")
         widget.add_class(status_type)
+
+    def update_emoji_status(self, emoji: str):
+        try:
+            widget = self.query_one("#emoji_status", Static)
+            widget.update(emoji)
+        except NoMatches:
+            pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "main_menu":
@@ -205,6 +216,7 @@ class ReaderScreen(Screen):
         self.reading = True
         self.query_one("#toggle_reading", Button).label = "Stop Reading"
         self.read_timer = self.set_interval(2, self.check_read_status)
+        self.update_emoji_status("🔍")  # Magnifying glass while reading
 
     def stop_reading(self) -> None:
         if self.read_timer:
@@ -215,6 +227,7 @@ class ReaderScreen(Screen):
             button.label = "Start Reading"
         except NoMatches:
             pass
+        self.update_emoji_status("🔍")  # Reset to magnifying glass when stopped
 
     def on_unmount(self) -> None:
         self.stop_reading()
