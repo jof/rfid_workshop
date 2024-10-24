@@ -97,7 +97,9 @@ class EnrollmentScreen(Screen):
         # Clear input fields
         self.query_one("#name", Input).value = ""
         # self.query_one("#facility_code", Input).value = ""
-        self.query_one("#card_number", Input).value = ""
+        self.query_one("#card_number", Input).value = str(
+            int(self.query_one("#card_number", Input).value) + 1
+        )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "enroll_card":
@@ -120,12 +122,9 @@ class EnrollmentScreen(Screen):
 class ReaderScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Container(
-            ScrollableContainer(
-                DataTable(id="database"),
-                id="database_container"
-            ),
+            ScrollableContainer(DataTable(id="database"), id="database_container"),
             Static("", id="status", classes="success"),
-            Button("Main Menu", id="main_menu", variant="primary")
+            Button("Main Menu", id="main_menu", variant="primary"),
         )
 
     def on_mount(self):
@@ -146,12 +145,20 @@ class ReaderScreen(Screen):
             return None
         output = proxmark3.grabbed_output
 
-        successful_regex = (rf"FC:\s+(\d+)\s+CN:\s+(\d+)\s+parity\s+\( ok \)")
+        successful_regex = rf"FC:\s+(\d+)\s+CN:\s+(\d+)\s+parity\s+\( ok \)"
         match = re.search(successful_regex, output)
         if match:
             facility_code = int(match.group(1))
             card_number = int(match.group(2))
-            matching_card = next((card for card in self.app.database.cards if card.facility_code == facility_code and card.card_number == card_number), None)
+            matching_card = next(
+                (
+                    card
+                    for card in self.app.database.cards
+                    if card.facility_code == facility_code
+                    and card.card_number == card_number
+                ),
+                None,
+            )
             if matching_card:
                 self.highlight_matching_row(matching_card)
                 self.update_status(f"Access Granted. Welcome, {matching_card.name}")
@@ -174,6 +181,7 @@ class ReaderScreen(Screen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "main_menu":
             self.app.pop_screen()
+
 
 class MenuApp(App):
     CSS = """
@@ -254,7 +262,7 @@ class MenuApp(App):
 def main():
     parser = ArgumentParser(description="Reader App")
     parser.add_argument(
-        "--port", "-p", default="/dev/ttyACM1", help="Serial port to use"
+        "--port", "-p", default="/dev/ttyACM0", help="Serial port to use"
     )
     args = parser.parse_args()
 
