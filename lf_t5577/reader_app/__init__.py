@@ -1,12 +1,15 @@
 #!/usr/bin/env python
 import json
+import math
 import random
 import re
 from argparse import ArgumentParser
 from dataclasses import asdict, dataclass
 from typing import List
 
+import numpy
 import pm3
+import pygame
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, ScrollableContainer
 from textual.css.query import NoMatches
@@ -174,12 +177,37 @@ class ReaderScreen(Screen):
                 self.highlight_matching_row(matching_card)
                 self.update_status(f"Access Granted. Welcome, {matching_card.name}")
                 self.update_emoji_status("✅")  # Green checkbox
+                self.play_access_granted_tone()
             else:
                 self.update_status("Access Denied", "error")
                 self.update_emoji_status("❌")  # Red X
+                self.play_access_denied_tone()
         else:
             self.update_status("No Card Found", "secondary")
             self.update_emoji_status("❓")  # Red question mark
+
+    def play_tone(self, frequency, duration):
+        sample_rate = 44100
+        n_samples = int(round(duration * sample_rate))
+        buf = numpy.zeros((n_samples, 2), dtype=numpy.int16)
+        max_sample = 2 ** (16 - 1) - 1
+        for s in range(n_samples):
+            t = float(s) / sample_rate
+            buf[s][0] = int(round(max_sample * math.sin(2 * math.pi * frequency * t)))
+            buf[s][1] = buf[s][0]  # Left and right channel
+        sound = pygame.sndarray.make_sound(buf)
+        sound.play(loops=0)
+        pygame.time.wait(int(duration * 1000))
+
+    def play_access_granted_tone(self):
+        self.play_tone(880, 0.1)  # A5
+        self.play_tone(988, 0.1)  # B5
+        self.play_tone(1047, 0.2)  # C6
+
+    def play_access_denied_tone(self):
+        self.play_tone(440, 0.2)  # A4
+        self.play_tone(415, 0.2)  # Ab4
+        self.play_tone(392, 0.4)  # G4
 
     def highlight_matching_row(self, matching_card):
         pass
@@ -326,6 +354,7 @@ def main():
         return
 
     app = MenuApp()
+    pygame.mixer.init()
     app.run()
 
 
