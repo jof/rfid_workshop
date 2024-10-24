@@ -119,17 +119,27 @@ class EnrollmentScreen(Screen):
         widget.add_class(status_type)
 
 
+from textual.timer import Timer
+from textual.css.query import NoMatches
+
+
 class ReaderScreen(Screen):
+    BINDINGS = [("space", "toggle_reading", "Toggle Reading")]
+
     def compose(self) -> ComposeResult:
         yield Container(
             ScrollableContainer(DataTable(id="database"), id="database_container"),
             Static("", id="status", classes="success"),
-            Button("Main Menu", id="main_menu", variant="primary"),
+            Horizontal(
+                Button("Main Menu", id="main_menu", variant="primary"),
+                Button("Start Reading", id="toggle_reading", variant="primary"),
+            ),
         )
 
     def on_mount(self):
         self.update_database()
-        self.check_read_status()
+        self.reading = False
+        self.read_timer = None
 
     def update_database(self):
         table = self.query_one("#database", DataTable)
@@ -180,7 +190,34 @@ class ReaderScreen(Screen):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "main_menu":
+            self.stop_reading()
             self.app.pop_screen()
+        elif event.button.id == "toggle_reading":
+            self.action_toggle_reading()
+
+    def action_toggle_reading(self) -> None:
+        if self.reading:
+            self.stop_reading()
+        else:
+            self.start_reading()
+
+    def start_reading(self) -> None:
+        self.reading = True
+        self.query_one("#toggle_reading", Button).label = "Stop Reading"
+        self.read_timer = self.set_interval(2, self.check_read_status)
+
+    def stop_reading(self) -> None:
+        if self.read_timer:
+            self.read_timer.stop()
+        self.reading = False
+        try:
+            button = self.query_one("#toggle_reading", Button)
+            button.label = "Start Reading"
+        except NoMatches:
+            pass
+
+    def on_unmount(self) -> None:
+        self.stop_reading()
 
 
 class MenuApp(App):
@@ -231,6 +268,9 @@ class MenuApp(App):
         width: 50%;
     }
     #main_menu {
+        width: 50%;
+    }
+    #toggle_reading {
         width: 50%;
     }
     """
